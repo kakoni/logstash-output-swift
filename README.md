@@ -16,9 +16,14 @@ Released versions are available via rubygems.
 
 ## Configuration options
 
-| Option                       | Type             | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Required? | Default |
-| ------                       | ----             | -----------                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | --------- | ------- |
-| driver_class                 | String           | Specify a driver class if autoloading fails                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | No        | False   |
+| Option           | Type             | Description                                 | Required? | Default |
+| ------           | ----             | -----------                                 | --------- | ------- |
+| username         | String           | Openstack Username                          | Yes       |         |
+| api_key          | String           | Openstack apikey                            | Yes       |         |
+| auth_url         | String           | Keystone server                             | Yes       |         |
+| project_name     | String           | Project name                                | Yes       |         |
+| domain_name      | String           | Domain name                                 | Yes       |         |
+| containere       | String           | Swift container for the logs                | Yes       |         |
 
 ## Development and Running tests
   - `bundle exec rspec`

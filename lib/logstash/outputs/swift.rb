@@ -60,15 +60,13 @@ require "fog/openstack"
 # This is an example of logstash config:
 # [source,ruby]
 # output {
-#    s3{
-#      access_key_id => "crazy_key"             (required)
-#      secret_access_key => "monkey_access_key" (required)
-#      region => "eu-west-1"                    (optional, default = "us-east-1")
-#      bucket => "your_bucket"                  (required)
-#      size_file => 2048                        (optional) - Bytes
-#      time_file => 5                           (optional) - Minutes
-#      codec => "plain"                         (optional)
-#      canned_acl => "private"                  (optional. Options are "private", "public-read", "public-read-write", "authenticated-read". Defaults to "private" )
+#    swift {
+#      username => "crazy_name"                 (required)
+#      api_key => "crazy_key"                   (required)
+#      auth_url => "https://auth_tokens"        (required)
+#      project_name => "crazy project name"     (required)
+#      domain_name => "crazy domain name"       (required)
+#      container => "your_bucket_container"     (required)
 #    }
 #
 class LogStash::Outputs::Swift < LogStash::Outputs::Base
