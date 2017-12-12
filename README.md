@@ -1,6 +1,7 @@
 # logstash-output-swift
 
 This plugin is provided as an external plugin and is not part of the Logstash project.
+Its forked from [logstash-out-s3](https://github.com/logstash-plugins/logstash-output-s3) project.
 
 This plugin allows you to output to Openstack swift storage.
 
@@ -12,7 +13,7 @@ Released versions are available via rubygems.
 
 ## Installation
   - Run `bin/logstash-plugin install logstash-output-swift` in your logstash installation directory
-  - Configure (examples can be found in the examples directory)
+  - Configure
 
 ## Configuration options
 
@@ -23,7 +24,7 @@ Released versions are available via rubygems.
 | auth_url         | String           | Keystone server                             | Yes       |         |
 | project_name     | String           | Project name                                | Yes       |         |
 | domain_name      | String           | Domain name                                 | Yes       |         |
-| containere       | String           | Swift container for the logs                | Yes       |         |
+| container        | String           | Swift container for the logs                | Yes       |         |
 
 ## Development and Running tests
   - `bundle exec rspec`
