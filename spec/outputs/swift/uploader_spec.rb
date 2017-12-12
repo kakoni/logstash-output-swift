@@ -1,16 +1,18 @@
 # Encoding: utf-8
 require "logstash/devutils/rspec/spec_helper"
-require "logstash/outputs/s3/uploader"
-require "logstash/outputs/s3/temporary_file"
-require "aws-sdk"
+require "logstash/outputs/swift/uploader"
+require "logstash/outputs/swift/temporary_file"
+require "fog/openstack"
 require "stud/temporary"
 
-describe LogStash::Outputs::S3::Uploader do
+describe LogStash::Outputs::Swift::Uploader do
   let(:logger) { spy(:logger ) }
   let(:max_upload_workers) { 1 }
   let(:bucket_name) { "foobar-bucket" }
-  let(:client) { Aws::S3::Client.new(stub_responses: true) }
-  let(:bucket) { Aws::S3::Bucket.new(bucket_name, :client => client) }
+
+  let(:service) { Fog::Storage::OpenStack.new }
+  let(:container) { service.directories.get(bucket_name)  }
+
   let(:temporary_directory) { Stud::Temporary.pathname }
   let(:temporary_file) { Stud::Temporary.file }
   let(:key) { "foobar" }
@@ -25,15 +27,15 @@ describe LogStash::Outputs::S3::Uploader do
   end
 
   let(:file) do
-    f = LogStash::Outputs::S3::TemporaryFile.new(key, temporary_file, temporary_directory)
+    f = LogStash::Outputs::Swift::TemporaryFile.new(key, temporary_file, temporary_directory)
     f.write("random content")
     f.fsync
     f
   end
 
-  subject { described_class.new(bucket, logger, threadpool) }
+  subject { described_class.new(container, logger, threadpool) }
 
-  it "upload file to the s3 bucket" do
+  it "upload file to the swift container" do
     expect { subject.upload(file) }.not_to raise_error
   end
 
@@ -44,14 +46,4 @@ describe LogStash::Outputs::S3::Uploader do
     subject.upload(file, { :on_complete => callback })
   end
 
-  it "retries errors indefinitively" do
-    s3 = double("s3").as_null_object
-
-    expect(logger).to receive(:error).with(any_args).once
-    expect(bucket).to receive(:object).with(file.key).and_return(s3).twice
-    expect(s3).to receive(:upload_file).with(any_args).and_raise(StandardError)
-    expect(s3).to receive(:upload_file).with(any_args).and_return(true)
-
-    subject.upload(file)
-  end
 end

@@ -1,10 +1,9 @@
 # encoding: utf-8
 require "logstash/util"
-require "aws-sdk"
 
 module LogStash
   module Outputs
-    class S3
+    class Swift
       class Uploader
         TIME_BEFORE_RETRYING_SECONDS = 1
         DEFAULT_THREADPOOL = Concurrent::ThreadPoolExecutor.new({
@@ -15,27 +14,27 @@ module LogStash
                                                                 })
 
 
-        attr_reader :bucket, :upload_options, :logger
+        attr_reader :container, :upload_options, :logger
 
-        def initialize(bucket, logger, threadpool = DEFAULT_THREADPOOL)
-          @bucket = bucket
+        def initialize(container, logger, threadpool = DEFAULT_THREADPOOL)
+          @container = container
           @workers_pool = threadpool
           @logger = logger
         end
 
         def upload_async(file, options = {})
           @workers_pool.post do
-            LogStash::Util.set_thread_name("S3 output uploader, file: #{file.path}")
+            LogStash::Util.set_thread_name("Swift output uploader, file: #{file.path}")
             upload(file, options)
           end
         end
 
         def upload(file, options = {})
+          puts 'in uploader. upload'
           upload_options = options.fetch(:upload_options, {})
-
           begin
-            obj = bucket.object(file.key)
-            obj.upload_file(file.path, upload_options)
+            container.files.create(key: file.key, body: ::File.read(::File.expand_path(file.path)))
+            puts 'dpone'
           rescue Errno::ENOENT => e
             logger.error("File doesn't exist! Unrecoverable error.", :exception => e.class, :message => e.message, :path => file.path, :backtrace => e.backtrace)
           rescue => e

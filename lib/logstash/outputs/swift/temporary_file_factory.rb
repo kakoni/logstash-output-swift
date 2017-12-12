@@ -7,7 +7,7 @@ require "forwardable"
 
 module LogStash
   module Outputs
-    class S3
+    class Swift
       # Since the file can contains dynamic part, we have to handle a more local structure to
       # allow a nice recovery from a crash.
       #

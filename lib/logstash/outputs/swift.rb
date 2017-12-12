@@ -1,7 +1,6 @@
 # encoding: utf-8
 require "logstash/outputs/base"
 require "logstash/namespace"
-require "logstash/plugin_mixins/aws_config"
 require "stud/temporary"
 require "stud/task"
 require "concurrent"
@@ -11,22 +10,19 @@ require "tmpdir"
 require "fileutils"
 require "set"
 require "pathname"
-require "aws-sdk"
-require "logstash/outputs/s3/patch"
-
-Aws.eager_autoload!
+require "fog/openstack"
 
 # INFORMATION:
 #
-# This plugin batches and uploads logstash events into Amazon Simple Storage Service (Amazon S3).
+# This plugin batches and uploads logstash events into Openstack Swift.
 #
 # Requirements:
 # * Amazon S3 Bucket and S3 Access Permissions (Typically access_key_id and secret_access_key)
 # * S3 PutObject permission
 #
-# S3 outputs create temporary files into the OS' temporary directory, you can specify where to save them using the `temporary_directory` option.
+# Swift outputs create temporary files into the OS' temporary directory, you can specify where to save them using the `temporary_directory` option.
 #
-# S3 output files have the following format
+# Swift output files have the following format
 #
 # ls.s3.312bc026-2f5d-49bc-ae9f-5940cf4ad9a6.2013-04-18T10.00.tag_hello.part0.txt
 #
@@ -75,19 +71,19 @@ Aws.eager_autoload!
 #      canned_acl => "private"                  (optional. Options are "private", "public-read", "public-read-write", "authenticated-read". Defaults to "private" )
 #    }
 #
-class LogStash::Outputs::S3 < LogStash::Outputs::Base
-  require "logstash/outputs/s3/writable_directory_validator"
-  require "logstash/outputs/s3/path_validator"
-  require "logstash/outputs/s3/write_bucket_permission_validator"
-  require "logstash/outputs/s3/size_rotation_policy"
-  require "logstash/outputs/s3/time_rotation_policy"
-  require "logstash/outputs/s3/size_and_time_rotation_policy"
-  require "logstash/outputs/s3/temporary_file"
-  require "logstash/outputs/s3/temporary_file_factory"
-  require "logstash/outputs/s3/uploader"
-  require "logstash/outputs/s3/file_repository"
+class LogStash::Outputs::Swift < LogStash::Outputs::Base
+  require "logstash/outputs/swift/writable_directory_validator"
+  require "logstash/outputs/swift/path_validator"
+  require "logstash/outputs/swift/write_container_permission_validator"
+  require "logstash/outputs/swift/size_rotation_policy"
+  require "logstash/outputs/swift/time_rotation_policy"
+  require "logstash/outputs/swift/size_and_time_rotation_policy"
+  require "logstash/outputs/swift/temporary_file"
+  require "logstash/outputs/swift/temporary_file_factory"
+  require "logstash/outputs/swift/uploader"
+  require "logstash/outputs/swift/file_repository"
 
-  include LogStash::PluginMixins::AwsConfig::V2
+  #include LogStash::PluginMixins::AwsConfig::V2
 
   PREFIX_KEY_NORMALIZE_CHARACTER = "_"
   PERIODIC_CHECK_INTERVAL_IN_SECONDS = 15
@@ -98,13 +94,13 @@ class LogStash::Outputs::S3 < LogStash::Outputs::Base
                                                                  })
 
 
-  config_name "s3"
+  config_name "swift"
   default :codec, "line"
 
   concurrency :shared
 
-  # S3 bucket
-  config :bucket, :validate => :string, :required => true
+  # Swift container
+  config :container, :validate => :string, :required => true
 
   # Set the size of file in bytes, this means that files on bucket when have dimension > file_size, they are stored in two or more file.
   # If you have tags then it will generate a specific size file for every tags
@@ -127,23 +123,6 @@ class LogStash::Outputs::S3 < LogStash::Outputs::Base
   config :canned_acl, :validate => ["private", "public-read", "public-read-write", "authenticated-read"],
          :default => "private"
 
-  # Specifies wether or not to use S3's server side encryption. Defaults to no encryption.
-  config :server_side_encryption, :validate => :boolean, :default => false
-
-  # Specifies what type of encryption to use when SSE is enabled.
-  config :server_side_encryption_algorithm, :validate => ["AES256", "aws:kms"], :default => "AES256"
-
-  # The key to use when specified along with server_side_encryption => aws:kms.
-  # If server_side_encryption => aws:kms is set but this is not default KMS key is used.
-  # http://docs.aws.amazon.com/AmazonS3/latest/dev/UsingKMSEncryption.html
-  config :ssekms_key_id, :validate => :string
-
-  # Specifies what S3 storage class to use when uploading the file.
-  # More information about the different storage classes can be found:
-  # http://docs.aws.amazon.com/AmazonS3/latest/dev/storage-class-intro.html
-  # Defaults to STANDARD.
-  config :storage_class, :validate => ["STANDARD", "REDUCED_REDUNDANCY", "STANDARD_IA"], :default => "STANDARD"
-
   # Set the directory where logstash will store the tmp files before sending it to S3
   # default to the current OS temporary directory in linux /tmp/logstash
   config :temporary_directory, :validate => :string, :default => File.join(Dir.tmpdir, "logstash")
@@ -157,10 +136,6 @@ class LogStash::Outputs::S3 < LogStash::Outputs::Base
 
   # Number of items we can keep in the local queue before uploading them
   config :upload_queue_size, :validate => :number, :default => 2 * (Concurrent.processor_count * 0.25).ceil
-
-  # The version of the S3 signature hash to use. Normally uses the internal client default, can be explicitly
-  # specified here
-  config :signature_version, :validate => ['v2', 'v4']
 
   # Define tags to be appended to the file on the S3 bucket.
   #
@@ -183,6 +158,21 @@ class LogStash::Outputs::S3 < LogStash::Outputs::Base
   # In some circonstances you need finer grained permission on subfolder, this allow you to disable the check at startup.
   config :validate_credentials_on_root_bucket, :validate => :boolean, :default => true
 
+  #Openstack username
+  config :username, :validate => :string
+
+  #Openstack api_key
+  config :api_key, :validate => :string
+
+  #Openstack auth url
+  config :auth_url, :validate => :string
+
+  #Openstack project_name
+  config :project_name, :validate => :string
+
+  #Openstack domain_name
+  config :domain_name, :validate => :string
+
   def register
     # I've move the validation of the items into custom classes
     # to prepare for the new config validation that will be part of the core so the core can
@@ -197,8 +187,8 @@ class LogStash::Outputs::S3 < LogStash::Outputs::Base
       raise LogStash::ConfigurationError, "Logstash must have the permissions to write to the temporary directory: #{@temporary_directory}"
     end
 
-    if @validate_credentials_on_root_bucket && !WriteBucketPermissionValidator.new(@logger).valid?(bucket_resource, upload_options)
-      raise LogStash::ConfigurationError, "Logstash must have the privileges to write to root bucket `#{@bucket}`, check your credentials or your permissions."
+    if @validate_credentials_on_root_bucket && !WriteContainerPermissionValidator.new(@logger).valid?(container_resource)
+      raise LogStash::ConfigurationError, "Logstash must have the privileges to write to root container `#{@container}`, check your credentials or your permissions."
     end
 
     if @time_file.nil? && @size_file.nil? || @size_file == 0 && @time_file == 0
@@ -214,7 +204,7 @@ class LogStash::Outputs::S3 < LogStash::Outputs::Base
                                                     :max_queue => @upload_queue_size,
                                                     :fallback_policy => :caller_runs })
 
-    @uploader = Uploader.new(bucket_resource, @logger, executor)
+    @uploader = Uploader.new(container_resource, @logger, executor)
 
     # Restoring from crash will use a new threadpool to slowly recover
     # New events should have more priority.
@@ -226,6 +216,7 @@ class LogStash::Outputs::S3 < LogStash::Outputs::Base
   end
 
   def multi_receive_encoded(events_and_encoded)
+    puts 'milti rrecei'
     prefix_written_to = Set.new
 
     events_and_encoded.each do |event, encoded|
@@ -233,6 +224,7 @@ class LogStash::Outputs::S3 < LogStash::Outputs::Base
       prefix_written_to << prefix_key
 
       begin
+        puts 'begin'
         @file_repository.get_file(prefix_key) { |file| file.write(encoded) }
         # The output should stop accepting new events coming in, since it cannot do anything with them anymore.
         # Log the error and rethrow it.
@@ -242,6 +234,7 @@ class LogStash::Outputs::S3 < LogStash::Outputs::Base
       end
     end
 
+    puts 'done'
     # Groups IO calls to optimize fstat checks
     rotate_if_needed(prefix_written_to)
   end
@@ -266,24 +259,8 @@ class LogStash::Outputs::S3 < LogStash::Outputs::Base
     @crash_uploader.stop if @restore # we might have still work to do for recovery so wait until we are done
   end
 
-  def full_options
-    options = Hash.new
-    options[:signature_version] = @signature_version if @signature_version
-    options.merge(aws_options_hash)
-  end
-
   def normalize_key(prefix_key)
     prefix_key.gsub(PathValidator.matches_re, PREFIX_KEY_NORMALIZE_CHARACTER)
-  end
-
-  def upload_options
-    {
-      :acl => @canned_acl,
-      :server_side_encryption => @server_side_encryption ? @server_side_encryption_algorithm : nil,
-      :ssekms_key_id => @server_side_encryption_algorithm == "aws:kms" ? @ssekms_key_id : nil,
-      :storage_class => @storage_class,
-      :content_encoding => @encoding == "gzip" ? "gzip" : nil
-    }
   end
 
   private
@@ -304,15 +281,22 @@ class LogStash::Outputs::S3 < LogStash::Outputs::Base
     @periodic_check.shutdown
   end
 
-  def bucket_resource
-    Aws::S3::Bucket.new(@bucket, full_options)
-  end
+  def container_resource
+    Excon.defaults[:ciphers] = 'DEFAULT'
+    service = Fog::Storage::OpenStack.new({
+      openstack_username: @username,
+      openstack_api_key: @api_key,
+      openstack_auth_url: @auth_url,
+      openstack_project_name: @project_name,
+      openstack_domain_name: @domain_name,
+      connection_options: {}
+    })
 
-  def aws_service_endpoint(region)
-    { :s3_endpoint => region == 'us-east-1' ? 's3.amazonaws.com' : "s3-#{region}.amazonaws.com"}
+    service.directories.get(@container)
   end
 
   def rotate_if_needed(prefixes)
+    puts 'rotate!'
     prefixes.each do |prefix|
       # Each file access is thread safe,
       # until the rotation is done then only
@@ -334,14 +318,14 @@ class LogStash::Outputs::S3 < LogStash::Outputs::Base
   end
 
   def upload_file(temp_file)
+    puts 'upload file'
     @logger.debug("Queue for upload", :path => temp_file.path)
 
     # if the queue is full the calling thread will be used to upload
     temp_file.close # make sure the content is on disk
     if temp_file.size > 0
       @uploader.upload_async(temp_file,
-                             :on_complete => method(:clean_temporary_file),
-                             :upload_options => upload_options )
+                             :on_complete => method(:clean_temporary_file))
     end
   end
 
@@ -364,7 +348,7 @@ class LogStash::Outputs::S3 < LogStash::Outputs::Base
   # The upload process will use a separate uploader/threadpool with less resource allocated to it.
   # but it will use an unbounded queue for the work, it may take some time before all the older files get processed.
   def restore_from_crash
-    @crash_uploader = Uploader.new(bucket_resource, @logger, CRASH_RECOVERY_THREADPOOL)
+    @crash_uploader = Uploader.new(container_resource, @logger, CRASH_RECOVERY_THREADPOOL)
 
     temp_folder_path = Pathname.new(@temporary_directory)
     Dir.glob(::File.join(@temporary_directory, "**/*"))
@@ -372,7 +356,7 @@ class LogStash::Outputs::S3 < LogStash::Outputs::Base
       .each do |file|
       temp_file = TemporaryFile.create_from_existing_file(file, temp_folder_path)
       @logger.debug("Recovering from crash and uploading", :file => temp_file.path)
-      @crash_uploader.upload_async(temp_file, :on_complete => method(:clean_temporary_file), :upload_options => upload_options)
+      @crash_uploader.upload_async(temp_file, :on_complete => method(:clean_temporary_file))
     end
   end
 end

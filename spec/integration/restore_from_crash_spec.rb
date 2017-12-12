@@ -1,6 +1,6 @@
 # encoding: utf-8
 require_relative "../spec_helper"
-require "logstash/outputs/s3"
+require "logstash/outputs/swift"
 require "logstash/codecs/line"
 require "stud/temporary"
 
@@ -37,4 +37,3 @@ describe "Restore from crash", :integration => true do
     end
   end
 end
-

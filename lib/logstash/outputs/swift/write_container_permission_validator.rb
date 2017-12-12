@@ -5,17 +5,17 @@ require "fileutils"
 
 module LogStash
   module Outputs
-    class S3
-      class WriteBucketPermissionValidator
+    class Swift
+      class WriteContainerPermissionValidator
         attr_reader :logger
 
         def initialize(logger)
           @logger = logger
         end
 
-        def valid?(bucket_resource, upload_options = {})
+        def valid?(container_resource)
           begin
-            upload_test_file(bucket_resource)
+            upload_test_file(container_resource)
             true
           rescue StandardError => e
             logger.error("Error validating bucket write permissions!",
@@ -28,30 +28,22 @@ module LogStash
         end
 
         private
-        def upload_test_file(bucket_resource, upload_options = {})
+        def upload_test_file(container_resource)
           generated_at = Time.now
 
           key = "logstash-programmatic-access-test-object-#{generated_at}"
           content = "Logstash permission check on #{generated_at}, by #{Socket.gethostname}"
 
           begin
-            f = Stud::Temporary.file
-            f.write(content)
-            f.fsync
-
-            obj = bucket_resource.object(key)
-            obj.upload_file(f, upload_options)
+            obj = container_resource.files.create(key: key, body: content)
 
             begin
-              obj.delete
+              obj.destroy
             rescue
               # Try to remove the files on the remote bucket,
               # but don't raise any errors if that doesn't work.
               # since we only really need `putobject`.
             end
-          ensure
-            f.close
-            FileUtils.rm_rf(f.path)
           end
         end
       end

@@ -8,7 +8,7 @@ ConcurrentHashMap = java.util.concurrent.ConcurrentHashMap
 
 module LogStash
   module Outputs
-    class S3
+    class Swift
       class FileRepository
         DEFAULT_STATE_SWEEPER_INTERVAL_SECS = 60
         DEFAULT_STALE_TIME_SECS = 15 * 60
